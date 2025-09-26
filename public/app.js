@@ -1,5 +1,5 @@
 // ===========================
-// public/app.js — Snapdrop Clone (Auto-Select Peer if Only One)
+// public/app.js — Snapdrop Clone (Fixed File Sending)
 // ===========================
 
 const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host;
@@ -20,7 +20,7 @@ const retryConnect = document.getElementById('retryConnect');
 const connectionStateEl = document.getElementById('connectionState');
 
 const connections = {}; // peerId -> { pc, dc, incoming }
-const CHUNK_SIZE = 64 * 1024; // 64KB
+const CHUNK_SIZE = 64 * 1024;
 
 function logStatus(msg) { console.log(msg); status.textContent = msg; }
 
@@ -63,7 +63,6 @@ socket.addEventListener('close', () => {
   connectionStateEl && (connectionStateEl.textContent = 'Disconnected');
   offlineOverlay && (offlineOverlay.hidden = false);
 });
-
 socket.addEventListener('error', () => {
   connectionStateEl && (connectionStateEl.textContent = 'Error');
   offlineOverlay && (offlineOverlay.hidden = false);
@@ -71,7 +70,6 @@ socket.addEventListener('error', () => {
 
 window.addEventListener('online', () => { offlineOverlay && (offlineOverlay.hidden = true); });
 window.addEventListener('offline', () => { offlineOverlay && (offlineOverlay.hidden = false); });
-
 
 function sendSignal(to, payload) {
   socket.send(JSON.stringify({ ...payload, target: to }));
@@ -82,10 +80,7 @@ function addPeerToList(id) {
   const li = document.createElement('li');
   li.id = 'peer-' + id;
   li.textContent = id;
-  li.addEventListener('click', () => {
-    selectedPeerId = id;
-    console.log('Selected peer:', id);
-  });
+  li.addEventListener('click', () => { selectedPeerId = id; });
   peersList.appendChild(li);
 }
 
@@ -102,12 +97,9 @@ async function createConnection(peerId, isInitiator = false) {
   pc.onicecandidate = (e) => {
     if (e.candidate) sendSignal(peerId, { type: 'candidate', candidate: e.candidate });
   };
-
   pc.onconnectionstatechange = () => {
-    console.log('ConnectionState:', peerId, pc.connectionState);
     if (pc.connectionState === 'failed' || pc.connectionState === 'closed') closePeer(peerId);
   };
-
   pc.ondatachannel = (e) => setupDataChannel(peerId, e.channel);
 
   if (isInitiator) {
@@ -135,10 +127,9 @@ function setupDataChannel(peerId, dc) {
         conn.incoming.buffers = [];
         conn.incoming.received = 0;
         conn.incoming.ui = makeIncomingUI(conn.incoming.filename, conn.incoming.size);
-      } catch(e) { console.error('Failed to parse metadata', e); }
+      } catch(e){ console.error('Failed to parse metadata', e); }
       return;
     }
-
     conn.incoming.buffers.push(ev.data);
     conn.incoming.received += ev.data.byteLength;
     updateIncomingUI(conn.incoming.ui, conn.incoming.received, conn.incoming.size);
@@ -172,38 +163,45 @@ async function handleCandidate(from, candidate) {
   try { await conn.pc.addIceCandidate(candidate); } catch(e){ console.error(e); }
 }
 
-// Helper to auto-select peer if only one
 function ensureSelectedPeer() {
   if (!selectedPeerId) {
     const peerEls = peersList.querySelectorAll('li');
-    if (peerEls.length === 1) {
-      selectedPeerId = peerEls[0].textContent;
-      console.log('Auto-selected peer:', selectedPeerId);
-    } else {
-      return false;
-    }
+    if (peerEls.length === 1) selectedPeerId = peerEls[0].textContent;
+    else return false;
   }
   return true;
 }
 
-// File input handler
-fileInput.addEventListener('change', async () => {
+function sendFileToPeer(file) {
   if (!ensureSelectedPeer()) return alert('Select a peer first!');
-  const files = Array.from(fileInput.files || []);
-  if (!files.length) return;
+  createConnection(selectedPeerId, true).then(conn => {
+    const send = () => sendFileOverDataChannel(conn, file);
+    if (conn.dc.readyState === 'open') send();
+    else conn.dc.onopen = send;
 
-  const conn = await createConnection(selectedPeerId, true);
-  const offer = await conn.pc.createOffer();
-  await conn.pc.setLocalDescription(offer);
-  sendSignal(selectedPeerId, { type: 'offer', sdp: conn.pc.localDescription });
+    if (conn.pc.signalingState === 'stable' && conn.pc.localDescription === null) {
+      conn.pc.createOffer().then(offer => {
+        conn.pc.setLocalDescription(offer);
+        sendSignal(selectedPeerId, { type:'offer', sdp: offer });
+      });
+    }
+  });
+}
 
-  const sendFiles = () => files.forEach(f => sendFileOverDataChannel(conn, f));
-  if (conn.dc.readyState === 'open') sendFiles();
-  else conn.dc.onopen = sendFiles;
-});
+// Unified file sending
+fileInput.addEventListener('change', () => Array.from(fileInput.files).forEach(sendFileToPeer));
 chooseBtn.addEventListener('click', () => fileInput.click());
 fabSend && fabSend.addEventListener('click', () => fileInput.click());
 retryConnect && retryConnect.addEventListener('click', () => location.reload());
+
+dropzone.addEventListener('dragenter', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', e => { e.preventDefault(); dropzone.classList.remove('drag'); });
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag');
+  Array.from(e.dataTransfer.files).forEach(sendFileToPeer);
+});
 
 function sendFileOverDataChannel(conn, file) {
   const dc = conn.dc;
@@ -237,17 +235,11 @@ function closePeer(peerId) {
   delete connections[peerId];
 }
 
-// UI Helpers
+// UI helpers (same as before)
 function makeOutgoingUI(name, size) {
   const el = document.createElement('div');
   el.className = 'transfer';
-  el.innerHTML = `
-    <div class="row">
-      <strong>Sending:</strong>
-      <span class="name">${name}</span>
-    </div>
-    <div class="progress"><i></i></div>
-  `;
+  el.innerHTML = `<div class="row"><strong>Sending:</strong> <span class="name">${name}</span></div><div class="progress"><i></i></div>`;
   transfers.appendChild(el);
   return el;
 }
@@ -255,14 +247,7 @@ function updateOutgoingUI(el, sent, total) { el.querySelector('i').style.width =
 function makeIncomingUI(name, size) {
   const el = document.createElement('div');
   el.className = 'transfer';
-  el.innerHTML = `
-    <div class="row">
-      <strong>Receiving:</strong>
-      <span class="name">${name}</span>
-    </div>
-    <div class="progress"><i></i></div>
-    <div class="actions"></div>
-  `;
+  el.innerHTML = `<div class="row"><strong>Receiving:</strong> <span class="name">${name}</span></div><div class="progress"><i></i></div><div class="actions"></div>`;
   transfers.appendChild(el);
   return el;
 }
@@ -276,23 +261,5 @@ function finishIncomingUI(el, blob, filename) {
   link.textContent = 'Download';
   actions.appendChild(link);
 }
-
-// Drag & drop support
-['dragenter','dragover'].forEach(ev => dropzone.addEventListener(ev, e=>{e.preventDefault(); dropzone.classList.add('drag');}));
-['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e=>{e.preventDefault(); dropzone.classList.remove('drag');}));
-dropzone.addEventListener('drop', async (e) => {
-  const files = Array.from(e.dataTransfer.files || []);
-  if (!files.length) return alert('No files dropped');
-  if (!ensureSelectedPeer()) return alert('Select a peer first!');
-
-  const conn = await createConnection(selectedPeerId, true);
-  const offer = await conn.pc.createOffer();
-  await conn.pc.setLocalDescription(offer);
-  sendSignal(selectedPeerId, { type:'offer', sdp: conn.pc.localDescription });
-
-  const sendFiles = () => files.forEach(f => sendFileOverDataChannel(conn, f));
-  if (conn.dc.readyState === 'open') sendFiles();
-  else conn.dc.onopen = sendFiles;
-});
 
 console.log('App loaded and ready');

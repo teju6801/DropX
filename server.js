@@ -1,4 +1,4 @@
-// server.js
+// server.js — Updated for File Sending App
 import express from "express";
 import http from "http";
 import { WebSocketServer } from "ws";
@@ -8,17 +8,17 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ✅ CREATE APP BEFORE USING IT
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Serve static files BEFORE handling WebSocket connections
+// Serve static files
 app.use(express.static(path.join(__dirname, "public")));
 
 // Map of connected clients
 const clients = new Map();
 
+// Generate random 7-character ID
 function makeId() {
   return Math.random().toString(36).slice(2, 9);
 }
@@ -28,8 +28,8 @@ wss.on("connection", (ws) => {
   clients.set(id, ws);
   console.log(`Client connected: ${id} (total: ${clients.size})`);
 
-  // Send welcome message with peer list
-  const peers = Array.from(clients.keys()).filter((k) => k !== id);
+  // Send welcome with peers
+  const peers = Array.from(clients.keys()).filter(k => k !== id);
   ws.send(JSON.stringify({ type: "welcome", id, peers }));
 
   // Notify others about new peer
@@ -43,13 +43,14 @@ wss.on("connection", (ws) => {
       const msg = JSON.parse(raw.toString());
       if (msg.target && clients.has(msg.target)) {
         const targetWs = clients.get(msg.target);
-        if (targetWs.readyState === 1)
+        if (targetWs.readyState === 1) {
           targetWs.send(JSON.stringify({ ...msg, from: id }));
+        }
       } else {
         console.log("Unhandled message from", id, msg);
       }
     } catch (e) {
-      console.error("Invalid message", e);
+      console.error("Invalid message from", id, e);
     }
   });
 
