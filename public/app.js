@@ -1,5 +1,5 @@
 // ===========================
-// public/app.js — Snapdrop Clone (Fixed File Sending)
+// public/app.js — Snapdrop Clone (Fixed STUN/TURN for File Sending)
 // ===========================
 
 const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host;
@@ -19,7 +19,7 @@ const offlineOverlay = document.getElementById('offlineOverlay');
 const retryConnect = document.getElementById('retryConnect');
 const connectionStateEl = document.getElementById('connectionState');
 
-const connections = {}; // peerId -> { pc, dc, incoming }
+const connections = {};
 const CHUNK_SIZE = 64 * 1024;
 
 function logStatus(msg) { console.log(msg); status.textContent = msg; }
@@ -89,26 +89,24 @@ function removePeerFromList(id) {
   if (el) el.remove();
 }
 
+// ✅ STUN + TURN configuration for reliable WebRTC
 async function createConnection(peerId, isInitiator = false) {
   if (connections[peerId]) return connections[peerId];
   const pc = new RTCPeerConnection({
     iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:global.stun.twilio.com:3478?transport=udp' }
+      { urls: 'stun:stun.l.google.com:19302' }, // public STUN
+      {
+        urls: 'turn:openrelay.metered.ca:443', // public TURN
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
     ]
   });
+
   connections[peerId] = { pc, dc: null, incoming: { buffers: [], size: 0, filename: null } };
 
-  pc.onicecandidate = (e) => {
-    if (e.candidate) sendSignal(peerId, { type: 'candidate', candidate: e.candidate });
-  };
-  pc.onconnectionstatechange = () => {
-    console.log('ConnectionState:', peerId, pc.connectionState);
-    if (pc.connectionState === 'failed' || pc.connectionState === 'closed') closePeer(peerId);
-  };
-  pc.oniceconnectionstatechange = () => {
-    console.log('ICE state:', peerId, pc.iceConnectionState);
-  };
+  pc.onicecandidate = (e) => { if (e.candidate) sendSignal(peerId, { type: 'candidate', candidate: e.candidate }); };
+  pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed' || pc.connectionState === 'closed') closePeer(peerId); };
   pc.ondatachannel = (e) => setupDataChannel(peerId, e.channel);
 
   if (isInitiator) {
@@ -122,10 +120,8 @@ async function createConnection(peerId, isInitiator = false) {
 function setupDataChannel(peerId, dc) {
   dc.binaryType = 'arraybuffer';
   connections[peerId].dc = dc;
-
   dc.onopen = () => console.log('DataChannel open with', peerId);
   dc.onclose = () => console.log('DataChannel closed with', peerId);
-
   dc.onmessage = (ev) => {
     const conn = connections[peerId];
     if (!conn.incoming.filename) {
@@ -142,7 +138,6 @@ function setupDataChannel(peerId, dc) {
     conn.incoming.buffers.push(ev.data);
     conn.incoming.received += ev.data.byteLength;
     updateIncomingUI(conn.incoming.ui, conn.incoming.received, conn.incoming.size);
-
     if (conn.incoming.received >= conn.incoming.size) {
       const blob = new Blob(conn.incoming.buffers);
       finishIncomingUI(conn.incoming.ui, blob, conn.incoming.filename);
@@ -197,7 +192,6 @@ function sendFileToPeer(file) {
   });
 }
 
-// Unified file sending
 fileInput.addEventListener('change', () => Array.from(fileInput.files).forEach(sendFileToPeer));
 chooseBtn.addEventListener('click', () => fileInput.click());
 fabSend && fabSend.addEventListener('click', () => fileInput.click());
@@ -244,7 +238,7 @@ function closePeer(peerId) {
   delete connections[peerId];
 }
 
-// UI helpers (same as before)
+// UI helpers
 function makeOutgoingUI(name, size) {
   const el = document.createElement('div');
   el.className = 'transfer';
@@ -271,4 +265,4 @@ function finishIncomingUI(el, blob, filename) {
   actions.appendChild(link);
 }
 
-console.log('App loaded and ready');
+console.log('App loaded with STUN/TURN and ready for file transfers');
