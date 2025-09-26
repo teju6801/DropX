@@ -91,14 +91,23 @@ function removePeerFromList(id) {
 
 async function createConnection(peerId, isInitiator = false) {
   if (connections[peerId]) return connections[peerId];
-  const pc = new RTCPeerConnection();
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:global.stun.twilio.com:3478?transport=udp' }
+    ]
+  });
   connections[peerId] = { pc, dc: null, incoming: { buffers: [], size: 0, filename: null } };
 
   pc.onicecandidate = (e) => {
     if (e.candidate) sendSignal(peerId, { type: 'candidate', candidate: e.candidate });
   };
   pc.onconnectionstatechange = () => {
+    console.log('ConnectionState:', peerId, pc.connectionState);
     if (pc.connectionState === 'failed' || pc.connectionState === 'closed') closePeer(peerId);
+  };
+  pc.oniceconnectionstatechange = () => {
+    console.log('ICE state:', peerId, pc.iceConnectionState);
   };
   pc.ondatachannel = (e) => setupDataChannel(peerId, e.channel);
 
