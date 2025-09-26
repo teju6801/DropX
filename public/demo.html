@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>File Transfer Demo</title>
+<style>
+/* === Full CSS (from your first file) === */
+:root {
+    --icon-size: 24px;
+    --primary-color: #4285f4;
+    --peer-width: 120px;
+    --text-color: #333;
+    --bg-color: #fafafa;
+    --bg-color-secondary: #f1f3f4;
+}
+html, body {
+    margin: 0;
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+}
+h1 {
+    font-size: 34px;
+    font-weight: 400;
+}
+x-peers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin: 20px 0;
+}
+x-peer label {
+    width: var(--peer-width);
+    padding: 8px;
+    cursor: pointer;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+x-peer .name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+x-peer x-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    color: white;
+    margin-bottom: 8px;
+    transition: transform 0.2s;
+}
+x-peer[transfer] x-icon {
+    opacity: 0.8;
+}
+/* Dialog */
+x-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.6);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+}
+x-dialog[show] {
+    opacity: 1;
+    pointer-events: all;
+}
+x-dialog x-paper {
+    background: white;
+    padding: 24px;
+    border-radius: 8px;
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+}
+#img-preview {
+    max-width: 100%;
+    max-height: 50vh;
+    margin: 16px 0;
+    display: block;
+}
+</style>
+</head>
+<body>
+
+<h1>Drag & Drop Files Here</h1>
+
+<x-peers></x-peers>
+
+<x-dialog id="receiveDialog">
+    <x-paper>
+        <h3 id="file-name"></h3>
+        <img id="img-preview" alt="Image Preview">
+    </x-paper>
+</x-dialog>
+
+<script>
+// === Full JS (from your second file) ===
+document.addEventListener("DOMContentLoaded", () => {
+    const body = document.body;
+    const peersContainer = document.querySelector("x-peers");
+    const receiveDialog = document.getElementById("receiveDialog");
+    const imgPreview = document.getElementById("img-preview");
+    const fileNameLabel = document.getElementById("file-name");
+
+    function createPeerForFile(file) {
+        const peer = document.createElement("x-peer");
+        peer.setAttribute("transfer", "");
+
+        const label = document.createElement("label");
+
+        const icon = document.createElement("x-icon");
+        icon.textContent = file.type.startsWith("image/") ? "🖼️" : "📁";
+        label.appendChild(icon);
+
+        const nameDiv = document.createElement("div");
+        nameDiv.className = "name";
+        nameDiv.textContent = file.name;
+        label.appendChild(nameDiv);
+
+        peer.appendChild(label);
+        peersContainer.appendChild(peer);
+
+        setTimeout(() => {
+            peer.removeAttribute("transfer");
+        }, 2000);
+
+        return peer;
+    }
+
+    function showReceiveDialog(file) {
+        fileNameLabel.textContent = file.name;
+
+        if (file.type.startsWith("image/")) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                imgPreview.src = e.target.result;
+                imgPreview.style.display = "block";
+            };
+            reader.readAsDataURL(file);
+        } else {
+            imgPreview.style.display = "none";
+        }
+
+        receiveDialog.setAttribute("show", "");
+    }
+
+    receiveDialog.addEventListener("click", (e) => {
+        if (e.target === receiveDialog) {
+            receiveDialog.removeAttribute("show");
+        }
+    });
+
+    body.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        body.classList.add("drag-over");
+    });
+
+    body.addEventListener("dragleave", (e) => {
+        e.preventDefault();
+        body.classList.remove("drag-over");
+    });
+
+    body.addEventListener("drop", (e) => {
+        e.preventDefault();
+        body.classList.remove("drag-over");
+
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length > 0) {
+            showReceiveDialog(files[0]);
+            files.forEach((file) => createPeerForFile(file));
+        }
+    });
+});
+</script>
+</body>
+</html>
