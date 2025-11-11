@@ -1,7 +1,7 @@
-// server.js — Updated for File Sending App
 import express from "express";
 import http from "http";
 import { WebSocketServer } from "ws";
+import { v4 as uuidv4 } from "uuid";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -12,59 +12,45 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Serve static files
 app.use(express.static(path.join(__dirname, "public")));
 
-// Map of connected clients
 const clients = new Map();
 
-// Generate random 7-character ID
-function makeId() {
-  return Math.random().toString(36).slice(2, 9);
-}
-
 wss.on("connection", (ws) => {
-  const id = makeId();
+  const id = uuidv4();
+  const peers = Array.from(clients.keys());
   clients.set(id, ws);
-  console.log(`Client connected: ${id} (total: ${clients.size})`);
 
-  // Send welcome with peers
-  const peers = Array.from(clients.keys()).filter(k => k !== id);
   ws.send(JSON.stringify({ type: "welcome", id, peers }));
+  broadcast({ type: "peer-joined", id }, id);
 
-  // Notify others about new peer
-  const joinMsg = JSON.stringify({ type: "peer-joined", id });
-  for (const [k, clientWs] of clients) {
-    if (k !== id && clientWs.readyState === 1) clientWs.send(joinMsg);
-  }
-
-  ws.on("message", (raw) => {
+  ws.on("message", (msg) => {
     try {
-      const msg = JSON.parse(raw.toString());
-      if (msg.target && clients.has(msg.target)) {
-        const targetWs = clients.get(msg.target);
-        if (targetWs.readyState === 1) {
-          targetWs.send(JSON.stringify({ ...msg, from: id }));
-        }
-      } else {
-        console.log("Unhandled message from", id, msg);
+      const data = JSON.parse(msg);
+      if (data.target && clients.has(data.target)) {
+        const target = clients.get(data.target);
+        target.send(JSON.stringify({ ...data, from: id }));
       }
-    } catch (e) {
-      console.error("Invalid message from", id, e);
+    } catch (err) {
+      console.error("Invalid message:", err);
     }
   });
 
   ws.on("close", () => {
     clients.delete(id);
-    console.log(`Client disconnected: ${id} (total: ${clients.size})`);
-    const leftMsg = JSON.stringify({ type: "peer-left", id });
-    for (const [k, clientWs] of clients) {
-      if (clientWs.readyState === 1) clientWs.send(leftMsg);
-    }
+    broadcast({ type: "peer-left", id });
   });
 });
 
+function broadcast(data, excludeId = null) {
+  for (const [cid, ws] of clients.entries()) {
+    if (cid !== excludeId && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(data));
+    }
+  }
+}
+
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+server.listen(PORT, () =>
+  console.log(`🚀 DropX signaling server running on http://localhost:${PORT}`)
+);

@@ -5,14 +5,29 @@
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "build-css": "tailwindcss -i ./public/style.css -o ./public/output.css --watch"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "express": "^5.1.0",
+    "uuid": "^13.0.0",
     "ws": "^8.18.3"
   },
-  "description": ""
+  "description": "��#\u0000 \u0000D\u0000r\u0000o\u0000p\u0000X\u0000\r\u0000 \u0000",
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/teju6801/DropX.git"
+  },
+  "bugs": {
+    "url": "https://github.com/teju6801/DropX/issues"
+  },
+  "homepage": "https://github.com/teju6801/DropX#readme"
 }
