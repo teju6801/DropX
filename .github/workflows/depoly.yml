@@ -32,7 +32,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           # ✅ If your index.html is in root folder
-          path: '.'
+          path: './public'
           # ⬆️ If files are in 'public/', change to: path: './public'
 
       - name: Deploy to GitHub Pages
