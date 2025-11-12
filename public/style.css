@@ -1,0 +1,26 @@
+/* === Natural layout fixes for original DropX UI === */
+
+/* Keep sidebar transition natural */
+#sidebar {
+  transition: transform 0.3s ease-in-out;
+}
+
+/* Fix content being pushed upward on mobile */
+@media (max-width: 1024px) {
+  main {
+    margin-left: 0 !important;
+    padding-top: 5rem; /* adds space for fixed header */
+  }
+  #sidebar {
+    transform: translateX(-100%);
+  }
+  #sidebar.active {
+    transform: translateX(0);
+  }
+}
+
+/* Prevent overlap when header and sidebar both exist */
+/* header {
+  z-index: 30;
+  position: relative;
+} */

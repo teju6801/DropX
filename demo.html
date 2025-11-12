@@ -9,19 +9,35 @@
   <link rel="stylesheet" href="style.css" />
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    body { font-family: 'Inter', sans-serif; }
 
-    /* Sidebar animation */
-    #sidebar { transition: transform 0.3s ease-in-out; }
-
-    /* Mobile view adjustments */
-    @media (max-width: 1024px) {
-      #sidebar { transform: translateX(-100%); }
-      #sidebar.active { transform: translateX(0); }
-      main { margin-left: 0 !important; }
+    body {
+      font-family: 'Inter', sans-serif;
     }
 
-    header { z-index: 30; position: relative; }
+    /* Sidebar transition for mobile */
+    #sidebar {
+      transition: transform 0.3s ease-in-out;
+    }
+
+    /* Sidebar hidden by default on mobile */
+    @media (max-width: 1024px) {
+      #sidebar {
+        transform: translateX(-100%);
+      }
+      #sidebar.active {
+        transform: translateX(0);
+      }
+      main {
+        margin-left: 0 !important;
+        padding-top: 5rem; /* space for fixed header */
+      }
+    }
+
+    /* Fix z-index stacking for header */
+    header {
+      z-index: 30;
+      position: relative;
+    }
   </style>
 </head>
 <body class="bg-gray-100 text-gray-900 flex h-screen overflow-hidden">
@@ -33,9 +49,6 @@
       <i data-lucide="menu" class="h-6 w-6"></i>
     </button>
   </header>
-
-  <!-- ✅ Spacer below navbar (only on mobile) -->
-  <div class="lg:hidden h-20"></div>
 
   <!-- ===== Sidebar ===== -->
   <aside id="sidebar" class="w-64 bg-white p-6 flex flex-col h-screen fixed top-0 left-0 shadow-lg z-10 lg:translate-x-0">
@@ -60,6 +73,7 @@
           <i data-lucide="history" class="mr-3 h-5 w-5"></i> History
         </a>
       </div>
+
       <div class="border-t border-gray-200 pt-4 mt-4">
         <a href="#" class="nav-link flex items-center p-3 rounded-lg text-gray-600 hover:bg-gray-200" data-section="about">
           <i data-lucide="info" class="mr-3 h-5 w-5"></i> About DropX
@@ -70,14 +84,15 @@
 
   <!-- ===== Main Content ===== -->
   <main class="flex-1 lg:ml-64 p-6 overflow-y-auto transition-all duration-300">
-    <header class="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
-      <div class="relative w-full sm:w-96 hidden sm:block">
-        <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 h-5 w-5"></i>
-        <input type="search" placeholder="Search connected devices or transfers..." class="pl-12 pr-4 py-3 rounded-lg border border-gray-300 bg-white w-full focus:outline-none focus:ring-2 focus:ring-indigo-500">
-      </div>
-    </header>
+   <header class="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
+  <div class="relative w-full sm:w-96 hidden sm:block">
+    <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 h-5 w-5"></i>
+    <input type="search" placeholder="Search connected devices or transfers..." class="pl-12 pr-4 py-3 rounded-lg border border-gray-300 bg-white w-full focus:outline-none focus:ring-2 focus:ring-indigo-500">
+  </div>
+</header>
 
-    <!-- ===== Devices Page ===== -->
+
+    <!-- Devices Page -->
     <div id="page-devices" class="page-content">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
         <section class="bg-white p-6 rounded-lg shadow-md">
@@ -112,25 +127,7 @@
       </div>
     </div>
 
-    <!-- ===== Other Pages (unchanged) ===== -->
-    <div id="page-transfers" class="page-content hidden">
-      <section class="bg-white p-6 rounded-lg shadow-md">
-        <h2 class="text-xl font-semibold mb-4">Active Transfers</h2>
-        <div id="activeTransfersList" class="space-y-3 text-gray-700">
-          <p>No active transfers right now.</p>
-        </div>
-      </section>
-    </div>
-
-    <div id="page-history" class="page-content hidden">
-      <section class="bg-white p-6 rounded-lg shadow-md">
-        <h2 class="text-xl font-semibold mb-4">Transfer History</h2>
-        <ul id="historyList" class="space-y-2 text-gray-700">
-          <li class="text-gray-500">No completed transfers yet.</li>
-        </ul>
-      </section>
-    </div>
-
+    <!-- About Page -->
     <div id="page-about" class="page-content hidden">
       <section class="bg-white p-6 rounded-lg shadow-md">
         <h2 class="text-xl font-semibold mb-4">About DropX</h2>
@@ -141,7 +138,7 @@
     </div>
   </main>
 
-  <!-- ===== Overlay & Connection State ===== -->
+  <!-- Offline Overlay -->
   <div id="offlineOverlay" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
     <div class="bg-white p-6 rounded-lg shadow-lg text-center">
       <h2 class="text-lg font-semibold mb-4 text-red-600">Connection Lost</h2>
@@ -157,10 +154,13 @@
   <script src="app.js" defer></script>
   <script>
     lucide.createIcons();
+
+    // Sidebar toggle (mobile)
     const sidebar = document.getElementById('sidebar');
     const menuToggle = document.getElementById('menuToggle');
     menuToggle?.addEventListener('click', () => sidebar.classList.toggle('active'));
 
+    // Page switching
     const navLinks = document.querySelectorAll('.nav-link');
     const pages = document.querySelectorAll('.page-content');
     navLinks.forEach(link => {
@@ -175,85 +175,5 @@
       });
     });
   </script>
-  <script>
-// =====================
-// DropXUI: Real-time + Persistent Transfer UI
-// =====================
-
-window.DropXUI = {
-  // ---- Active Transfer (live progress bar) ----
-  addTransfer(filename) {
-    const box = document.createElement("div");
-    box.className = "p-3 border rounded bg-gray-50 shadow-sm";
-    box.innerHTML = `
-      <div class="font-semibold text-gray-800">${filename}</div>
-      <div class="w-full bg-gray-300 h-2 mt-2 rounded">
-        <div class="progress bg-indigo-600 h-2 w-0 rounded transition-all duration-150"></div>
-      </div>`;
-    const list = document.getElementById("activeTransfersList") || document.getElementById("transfers");
-    if (list) list.prepend(box);
-    return box.querySelector(".progress");
-  },
-
-  updateProgress(progressEl, sent, total) {
-    const pct = Math.round((sent / total) * 100);
-    if (progressEl) progressEl.style.width = pct + "%";
-  },
-
-  // ---- History (saved persistently) ----
-  addHistory(filename, direction) {
-    const historyList = document.getElementById("historyList");
-    if (!historyList) return;
-
-    const color = direction === "sent" ? "text-blue-600" : "text-green-600";
-    const li = document.createElement("li");
-    li.innerHTML = `
-      <span class="${color} font-semibold">${filename}</span> ${direction === "sent" ? "sent" : "received"}.
-    `;
-    historyList.prepend(li);
-
-    // 💾 Save to localStorage for persistence
-    const saved = JSON.parse(localStorage.getItem("dropx-history") || "[]");
-    saved.unshift({ filename, direction, time: new Date().toISOString() });
-    localStorage.setItem("dropx-history", JSON.stringify(saved));
-  },
-
-  // ---- Load saved history ----
-  loadHistory() {
-    const historyList = document.getElementById("historyList");
-    if (!historyList) return;
-    historyList.innerHTML = "";
-
-    const saved = JSON.parse(localStorage.getItem("dropx-history") || "[]");
-    if (saved.length === 0) {
-      historyList.innerHTML = `<li class="text-gray-500">No completed transfers yet.</li>`;
-      return;
-    }
-
-    saved.forEach((item) => {
-      const color = item.direction === "sent" ? "text-blue-600" : "text-green-600";
-      const li = document.createElement("li");
-      const date = new Date(item.time).toLocaleTimeString();
-      li.innerHTML = `
-        <span class="${color} font-semibold">${item.filename}</span>
-        ${item.direction} at ${date}.
-      `;
-      historyList.appendChild(li);
-    });
-  },
-
-  // ---- Clear history manually ----
-  clearHistory() {
-    localStorage.removeItem("dropx-history");
-    window.DropXUI.loadHistory();
-  }
-};
-
-// Load saved history when app starts
-window.addEventListener("DOMContentLoaded", () => {
-  window.DropXUI.loadHistory();
-});
-</script>
-
 </body>
 </html>

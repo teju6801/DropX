@@ -14,22 +14,75 @@ const wss = new WebSocketServer({ server });
 
 app.use(express.static(path.join(__dirname, "public")));
 
+// clients: Map<id, { ws, name }>
 const clients = new Map();
+
+function buildPeersArray() {
+  return Array.from(clients.entries()).map(([id, info]) => ({
+    id,
+    name: info.name || "Unnamed Device",
+  }));
+}
+
+function broadcast(data, excludeId = null) {
+  for (const [cid, info] of clients.entries()) {
+    if (cid === excludeId) continue;
+    const ws = info.ws;
+    if (ws && ws.readyState === 1) {
+      try {
+        ws.send(JSON.stringify(data));
+      } catch (err) {
+        console.error("Broadcast send error:", err);
+      }
+    }
+  }
+}
 
 wss.on("connection", (ws) => {
   const id = uuidv4();
-  const peers = Array.from(clients.keys());
-  clients.set(id, ws);
+  // default name until client sends set-name
+  clients.set(id, { ws, name: "Unnamed Device" });
 
-  ws.send(JSON.stringify({ type: "welcome", id, peers }));
-  broadcast({ type: "peer-joined", id }, id);
+  // send welcome with current peers
+  try {
+    ws.send(
+      JSON.stringify({
+        type: "welcome",
+        id,
+        peers: buildPeersArray(),
+      })
+    );
+  } catch (err) {
+    console.error("Send welcome error:", err);
+  }
+
+  // announce new peer (compatibility) and full peers update
+  broadcast({ type: "peer-joined", id, name: "Unnamed Device" }, id);
+  broadcast({ type: "peers-update", peers: buildPeersArray() });
 
   ws.on("message", (msg) => {
     try {
       const data = JSON.parse(msg);
-      if (data.target && clients.has(data.target)) {
-        const target = clients.get(data.target);
-        target.send(JSON.stringify({ ...data, from: id }));
+
+      // handle name set by client
+      if (data.type === "set-name") {
+        const entry = clients.get(id);
+        if (entry) {
+          entry.name = data.name || "Unnamed Device";
+        }
+        // update everyone with new peers list
+        broadcast({ type: "peers-update", peers: buildPeersArray() });
+        return;
+      }
+
+      // forwarding signaling messages (offer/answer/candidate) to target
+      if (data.target) {
+        const targetInfo = clients.get(data.target);
+        if (targetInfo && targetInfo.ws && targetInfo.ws.readyState === 1) {
+          // include 'from' id for receiver
+          targetInfo.ws.send(JSON.stringify({ ...data, from: id }));
+        }
+        return;
       }
     } catch (err) {
       console.error("Invalid message:", err);
@@ -38,17 +91,15 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     clients.delete(id);
+    // notify others
     broadcast({ type: "peer-left", id });
+    broadcast({ type: "peers-update", peers: buildPeersArray() });
+  });
+
+  ws.on("error", (err) => {
+    console.error("WebSocket error for", id, err);
   });
 });
-
-function broadcast(data, excludeId = null) {
-  for (const [cid, ws] of clients.entries()) {
-    if (cid !== excludeId && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(data));
-    }
-  }
-}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>

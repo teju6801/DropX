@@ -1,5 +1,5 @@
 // ===========================
-// DropX — P2P File Sharing (Final Working Version)
+// DropX — P2P File Sharing (with device names)
 // ===========================
 
 const WS_URL =
@@ -22,18 +22,38 @@ const retryConnect = document.getElementById("retryConnect");
 const connections = {};
 const CHUNK_SIZE = 64 * 1024; // 64KB
 
+// map of peerId -> name (for quick lookup)
+const peerNames = {};
+
+// device name (saved in localStorage)
+let deviceName = localStorage.getItem("dropx-device-name");
+if (!deviceName) {
+  // ask once
+  try {
+    const ans = prompt("Enter a name for this device (e.g. 'Tejas Laptop'):", "My Device");
+    deviceName = (ans && ans.trim()) || `Device-${Math.random().toString(36).slice(2, 6)}`;
+    localStorage.setItem("dropx-device-name", deviceName);
+  } catch (e) {
+    deviceName = `Device-${Math.random().toString(36).slice(2, 6)}`;
+    localStorage.setItem("dropx-device-name", deviceName);
+  }
+}
+
 function logStatus(msg) {
   console.log(msg);
   if (status) status.textContent = msg;
 }
 
 // ===========================
-// WebSocket signaling
+// WebSocket signaling (with names)
 // ===========================
 socket.addEventListener("open", () => {
   logStatus("Connected to signaling server");
   if (connectionStateEl) connectionStateEl.textContent = "Connected";
   if (offlineOverlay) offlineOverlay.hidden = true;
+
+  // send our chosen name to server
+  socket.send(JSON.stringify({ type: "set-name", name: deviceName }));
 });
 
 socket.addEventListener("message", async (ev) => {
@@ -41,17 +61,37 @@ socket.addEventListener("message", async (ev) => {
   switch (msg.type) {
     case "welcome":
       myId = msg.id;
-      if (myIdEl) myIdEl.textContent = `You: ${myId}`;
-      msg.peers.forEach(addPeerToList);
+      if (myIdEl) myIdEl.textContent = `You: ${deviceName}`;
+      // populate peers (msg.peers is array of {id,name})
+      if (Array.isArray(msg.peers)) {
+        peersList.innerHTML = "";
+        msg.peers
+          .filter((p) => p.id !== myId)
+          .forEach((p) => addPeerToList(p.id, p.name));
+      }
       break;
+
+    case "peers-update":
+      // full rebuild
+      peersList.innerHTML = "";
+      if (Array.isArray(msg.peers)) {
+        msg.peers
+          .filter((p) => p.id !== myId)
+          .forEach((p) => addPeerToList(p.id, p.name));
+      }
+      break;
+
     case "peer-joined":
-      addPeerToList(msg.id);
+      // compatibility: may receive {id, name}
+      addPeerToList(msg.id, msg.name || "Unnamed Device");
       break;
+
     case "peer-left":
       removePeerFromList(msg.id);
       closePeer(msg.id);
       if (selectedPeerId === msg.id) selectedPeerId = null;
       break;
+
     case "offer":
       await handleOffer(msg.from, msg.sdp);
       break;
@@ -86,29 +126,70 @@ function sendSignal(to, payload) {
 }
 
 // ===========================
-// Peers UI
+// Peers UI (show friendly names)
 // ===========================
-function addPeerToList(id) {
-  if (document.getElementById("peer-" + id)) return;
+function shortId(id) {
+  return id ? id.slice(0, 6) : "";
+}
+
+function emojiForName(name) {
+  if (!name) return "🖥️";
+  const lower = name.toLowerCase();
+  if (/phone|android|ios|mobile|samsung|iphone/i.test(lower)) return "📱";
+  if (/mac|macbook|apple|ios/i.test(lower)) return "💻";
+  if (/windows|pc|desktop|workstation/i.test(lower)) return "🖥️";
+  return "💻";
+}
+
+function addPeerToList(id, name = "Unnamed Device") {
+  if (document.getElementById("peer-" + id)) {
+    // update name if changed
+    const existing = document.getElementById("peer-" + id);
+    if (existing) existing.dataset.name = name;
+    peerNames[id] = name;
+    existing && (existing.querySelector(".peer-name").textContent = name);
+    return;
+  }
+
+  peerNames[id] = name;
+
   const li = document.createElement("li");
   li.id = "peer-" + id;
-  li.textContent = id;
+  li.dataset.name = name;
   li.className =
-    "cursor-pointer hover:text-indigo-600 border-b border-gray-200 py-1";
+    "cursor-pointer hover:text-indigo-600 border-b border-gray-200 py-2 flex items-center justify-between";
+  const emoji = emojiForName(name);
+  li.innerHTML = `
+    <div class="flex items-center gap-3">
+      <div class="text-xl">${emoji}</div>
+      <div>
+        <div class="peer-name font-medium text-gray-800">${name}</div>
+        <div class="text-xs text-gray-400">#${shortId(id)}</div>
+      </div>
+    </div>
+    <div class="text-sm text-gray-500 select-none">Connect</div>
+  `;
+
   li.addEventListener("click", () => {
     selectedPeerId = id;
-    alert("Selected peer: " + id);
+    // highlight selection visually
+    document.querySelectorAll("#peers li").forEach(n => n.classList.remove("bg-indigo-50"));
+    li.classList.add("bg-indigo-50");
+    // show simple status
+    alert(`Selected peer: ${name} (${shortId(id)})`);
   });
+
   peersList.appendChild(li);
 }
 
 function removePeerFromList(id) {
   const el = document.getElementById("peer-" + id);
   if (el) el.remove();
+  delete peerNames[id];
 }
 
 // ===========================
-// WebRTC connection
+// WebRTC connection (unchanged logic)
 // ===========================
 async function createConnection(peerId, isInitiator = false) {
   if (connections[peerId]) return connections[peerId];
@@ -126,7 +207,7 @@ async function createConnection(peerId, isInitiator = false) {
   connections[peerId] = {
     pc,
     dc: null,
-    incoming: { buffers: [], size: 0, filename: null, received: 0 },
+    incoming: { buffers: [], size: 0, filename: null, received: 0, ui: null, progressEl: null },
   };
 
   pc.onicecandidate = (e) => {
@@ -157,12 +238,9 @@ function setupDataChannel(peerId, dc) {
   dc.onopen = () => {
     console.log("DataChannel open with", peerId);
     if (connectionStateEl)
-      connectionStateEl.textContent = "Connected with " + peerId;
+      connectionStateEl.textContent = `Connected with ${peerNames[peerId] || shortId(peerId)}`;
   };
 
-  // ===========================
-  // DataChannel Receiver Logic
-  // ===========================
   dc.onmessage = (ev) => {
     const conn = connections[peerId];
 
@@ -174,10 +252,19 @@ function setupDataChannel(peerId, dc) {
         conn.incoming.size = meta.size || 0;
         conn.incoming.buffers = [];
         conn.incoming.received = 0;
+
+        // create receiver UI (download area)
         conn.incoming.ui = makeIncomingUI(
           conn.incoming.filename,
           conn.incoming.size
         );
+
+        // also create an Active Transfer entry (so it appears in Active Transfers page)
+        if (window.DropXUI && window.DropXUI.addTransfer) {
+          const progressEl = window.DropXUI.addTransfer(conn.incoming.filename);
+          conn.incoming.progressEl = progressEl;
+        }
+
         console.log("Receiving:", conn.incoming.filename, conn.incoming.size);
       } catch (e) {
         console.error("Failed to parse metadata", e);
@@ -190,18 +277,39 @@ function setupDataChannel(peerId, dc) {
       console.log("EOF received");
       const blob = new Blob(conn.incoming.buffers);
       finishIncomingUI(conn.incoming.ui, blob, conn.incoming.filename);
-      conn.incoming = { buffers: [], size: 0, filename: null, received: 0 };
+
+      // update and remove active transfer UI
+      if (conn.incoming.progressEl && window.DropXUI && window.DropXUI.updateProgress) {
+        window.DropXUI.updateProgress(conn.incoming.progressEl, conn.incoming.size, conn.incoming.size);
+      }
+      if (window.DropXUI && window.DropXUI.addHistory)
+        window.DropXUI.addHistory(conn.incoming.filename, "received");
+
+      // remove active transfer card after short delay
+      if (conn.incoming.progressEl) {
+        const parent = conn.incoming.progressEl.parentElement;
+        setTimeout(() => {
+          try { if (parent && parent.parentElement) parent.parentElement.remove(); } catch {}
+        }, 1200);
+      }
+
+      conn.incoming = { buffers: [], size: 0, filename: null, received: 0, ui: null, progressEl: null };
       return;
     }
 
     // 3️⃣ Binary chunks
     conn.incoming.buffers.push(ev.data);
     conn.incoming.received += ev.data.byteLength;
+
+    // update both receiver UI and active transfers UI (if present)
     updateIncomingUI(
       conn.incoming.ui,
       conn.incoming.received,
       conn.incoming.size
     );
+    if (conn.incoming.progressEl && window.DropXUI && window.DropXUI.updateProgress) {
+      window.DropXUI.updateProgress(conn.incoming.progressEl, conn.incoming.received, conn.incoming.size);
+    }
 
     // 4️⃣ If complete (for safety)
     if (
@@ -211,7 +319,18 @@ function setupDataChannel(peerId, dc) {
       const blob = new Blob(conn.incoming.buffers);
       console.log("File complete:", conn.incoming.filename);
       finishIncomingUI(conn.incoming.ui, blob, conn.incoming.filename);
-      conn.incoming = { buffers: [], size: 0, filename: null, received: 0 };
+
+      if (window.DropXUI && window.DropXUI.addHistory)
+        window.DropXUI.addHistory(conn.incoming.filename, "received");
+
+      if (conn.incoming.progressEl) {
+        const parent = conn.incoming.progressEl.parentElement;
+        setTimeout(() => {
+          try { if (parent && parent.parentElement) parent.parentElement.remove(); } catch {}
+        }, 1200);
+      }
+
+      conn.incoming = { buffers: [], size: 0, filename: null, received: 0, ui: null, progressEl: null };
     }
   };
 }
@@ -293,12 +412,15 @@ function sendFileOverDataChannel(conn, file) {
 
   const reader = new FileReader();
   let offset = 0;
-  const progressEl = window.DropXUI
+
+  // create an active transfer entry in UI (if available)
+  const progressEl = window.DropXUI && window.DropXUI.addTransfer
     ? window.DropXUI.addTransfer(file.name)
     : null;
 
-  if (window.DropXUI && window.DropXUI.addHistory)
-    window.DropXUI.addHistory(file.name, "sent");
+  // record progressEl on the connection so we can remove it later if needed
+  conn.sending = conn.sending || {};
+  conn.sending[file.name] = { progressEl };
 
   reader.onload = (e) => {
     const buffer = e.target.result;
@@ -318,6 +440,23 @@ function sendFileOverDataChannel(conn, file) {
       } else {
         // ✅ Signal file completed
         dc.send("EOF");
+
+        // Mark finished in history and clean up the active transfer UI
+        if (window.DropXUI && window.DropXUI.addHistory)
+          window.DropXUI.addHistory(file.name, "sent");
+
+        // remove active transfer card after short delay
+        if (progressEl) {
+          const parent = progressEl.parentElement;
+          setTimeout(() => {
+            try { if (parent && parent.parentElement) parent.parentElement.remove(); } catch {}
+          }, 1200);
+        }
+
+        // cleanup sending record
+        if (conn.sending && conn.sending[file.name]) {
+          delete conn.sending[file.name];
+        }
       }
     }
 
@@ -339,6 +478,7 @@ function closePeer(peerId) {
     conn.pc && conn.pc.close();
   } catch {}
   delete connections[peerId];
+  delete peerNames[peerId];
 }
 
 // ===========================
@@ -382,6 +522,7 @@ function finishIncomingUI(el, blob, filename) {
   if (window.DropXUI && window.DropXUI.addHistory)
     window.DropXUI.addHistory(filename, "received");
 
+  // navigate to history tab so user sees it
   const historyLink = document.querySelector(
     '.nav-link[data-section="history"]'
   );
@@ -389,4 +530,3 @@ function finishIncomingUI(el, blob, filename) {
 }
 
 console.log("✅ DropX loaded and ready for transfers");
-// ===========================
